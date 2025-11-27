@@ -27,8 +27,7 @@ redis_data/
 Thumbs.db
 
 # Documentation with sensitive info (keep private)
-QUICK_START.md
-README.md
+*.md
 
 # Test scripts with credentials
 scripts/test-*.sh
