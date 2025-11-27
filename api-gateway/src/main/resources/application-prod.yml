@@ -1,0 +1,24 @@
+# Production-specific configuration
+# Override security endpoints for production if needed
+
+security:
+  public-endpoints:
+    - /api/auth/register
+    - /api/auth/login
+    - /api/auth/refresh-token
+    - /api/auth/verify-email
+    - /api/auth/resend-verification
+    - /api/auth/forgot-password
+    - /api/auth/reset-password
+    - /actuator/health
+  public-read-endpoints:
+    - /api/housing
+    - /api/images
+  fully-public-endpoints:
+    - /api/housing/search
+
+# Production logging (less verbose)
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    com.campusnest.gateway: INFO

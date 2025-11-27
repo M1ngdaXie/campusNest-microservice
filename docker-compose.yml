@@ -1,0 +1,269 @@
+services:
+  # Eureka Server (Service Discovery)
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    container_name: campusnest-micro-eureka
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: campusnest-micro-gateway
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      housing-service:
+        condition: service_started
+      messaging-service:
+        condition: service_started
+    environment:
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+
+      # Service URLs
+      USER_SERVICE_URL: http://user-service:8081
+      HOUSING_SERVICE_URL: http://housing-service:8082
+      MESSAGING_SERVICE_URL: http://messaging-service:8083
+
+      # Eureka Configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    ports:
+      - "8080:8080"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: campusnest-micro-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-campusNest_users}
+      MYSQL_USER: ${DB_USERNAME:-campusnest}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-campusnest123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # User Service
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: campusnest-micro-user-service
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-campusNest_users}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-campusnest}
+      DB_PASSWORD: ${DB_PASSWORD:-campusnest123}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TOKEN_EXPIRATION: ${JWT_ACCESS_TOKEN_EXPIRATION:-900000}
+      JWT_REFRESH_TOKEN_EXPIRATION: ${JWT_REFRESH_TOKEN_EXPIRATION:-604800000}
+
+      # Email Configuration
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+
+      # Frontend URL
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+
+      # Backend URL (for email verification links)
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:8081}
+
+      # Eureka Configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+
+      # Spring Profile
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+    ports:
+      - "8081:8081"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
+
+  # Housing Service
+  housing-service:
+    build:
+      context: ./housing-service
+      dockerfile: Dockerfile
+    container_name: campusnest-micro-housing-service
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-campusNest_users}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-campusnest}
+      DB_PASSWORD: ${DB_PASSWORD:-campusnest123}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+
+      # AWS S3 Configuration
+      AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-campusnest-images}
+      AWS_S3_REGION: ${AWS_S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+      # Redis Configuration (for caching)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Eureka Configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+        # Spring Profile
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8082:8082"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
+
+  # Messaging Service
+  messaging-service:
+    build:
+      context: ./messaging-service
+      dockerfile: Dockerfile
+    container_name: campusnest-micro-messaging-service
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:mysql://mysql:3306/campusNest_messaging?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-campusnest}
+      DB_PASSWORD: ${DB_PASSWORD:-campusnest123}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+
+      # Redis Configuration (for presence and caching)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Eureka Configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+
+      # Spring Profile
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8083:8083"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
+
+  # Redis (for caching in housing-service and presence tracking in messaging-service)
+  redis:
+    image: redis:7-alpine
+    container_name: campusnest-micro-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  campusnest-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

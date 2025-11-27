@@ -1,0 +1,121 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # User Service Routes
+        - id: user-service-auth
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - RewritePath=/api/auth/(?<segment>.*), /api/auth/$\{segment}
+
+        - id: user-service-user
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/user/**
+          filters:
+            - RewritePath=/api/user/(?<segment>.*), /api/user/$\{segment}
+
+        - id: user-service-admin
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/admin/**
+          filters:
+            - RewritePath=/api/admin/(?<segment>.*), /api/admin/$\{segment}
+
+        # Housing Service Routes
+        - id: housing-service-listings
+          uri: ${HOUSING_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/housing/**
+          filters:
+            - RewritePath=/api/housing/(?<segment>.*), /api/housing/$\{segment}
+
+        - id: housing-service-images
+          uri: ${HOUSING_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/images/**
+          filters:
+            - RewritePath=/api/images/(?<segment>.*), /api/images/$\{segment}
+
+        # Messaging Service Routes
+        - id: messaging-service-conversations
+          uri: lb://messaging-service
+          predicates:
+            - Path=/api/messaging/**
+          filters:
+            - RewritePath=/api/messaging/(?<segment>.*), /api/messaging/$\{segment}
+
+      # Global CORS Configuration
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:3000"
+              - "http://localhost:3001"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+
+# JWT Configuration (for validation)
+jwt:
+  secret: ${JWT_SECRET:doitouKatsuki12345rtyui567gy3g2eygeh23fyg2hy3ue}
+
+# Security Configuration
+security:
+  public-endpoints:
+    - /api/auth/register
+    - /api/auth/login
+    - /api/auth/refresh-token
+    - /api/auth/verify-email
+    - /api/auth/resend-verification
+    - /api/auth/forgot-password
+    - /api/auth/reset-password
+    - /actuator/health
+  public-read-endpoints:
+    - /api/housing
+    - /api/images
+  fully-public-endpoints:
+    - /api/housing/search
+
+# Eureka Client Configuration
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    registerWithEureka: true
+    fetchRegistry: true
+  instance:
+    preferIpAddress: true
+    instanceId: ${spring.application.name}:${random.value}
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# Logging
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    com.campusnest.gateway: INFO
+    com.netflix.eureka: DEBUG
+    com.netflix.discovery: DEBUG

@@ -1,0 +1,34 @@
+# Environment variables
+.env
+
+# Docker volumes
+mysql_data/
+redis_data/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Maven
+**/target/
+**/pom.xml.tag
+**/pom.xml.releaseBackup
+**/pom.xml.versionsBackup
+**/pom.xml.next
+**/release.properties
+**/dependency-reduced-pom.xml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation with sensitive info (keep private)
+QUICK_START.md
+README.md
+
+# Test scripts with credentials
+scripts/test-*.sh
