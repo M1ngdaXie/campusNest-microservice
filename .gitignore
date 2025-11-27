@@ -28,6 +28,7 @@ Thumbs.db
 
 # Documentation with sensitive info (keep private)
 *.md
+!PROJECT_STRUCTURE.md
 
 # Test scripts with credentials
 scripts/test-*.sh
