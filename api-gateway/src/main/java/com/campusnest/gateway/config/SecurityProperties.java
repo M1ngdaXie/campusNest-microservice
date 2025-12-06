@@ -13,6 +13,7 @@ public class SecurityProperties {
     private List<String> publicEndpoints = new ArrayList<>();
     private List<String> publicReadEndpoints = new ArrayList<>();
     private List<String> fullyPublicEndpoints = new ArrayList<>();
+    private List<String> protectedEndpoints = new ArrayList<>();
 
     public List<String> getPublicEndpoints() {
         return publicEndpoints;
@@ -36,5 +37,13 @@ public class SecurityProperties {
 
     public void setFullyPublicEndpoints(List<String> fullyPublicEndpoints) {
         this.fullyPublicEndpoints = fullyPublicEndpoints;
+    }
+
+    public List<String> getProtectedEndpoints() {
+        return protectedEndpoints;
+    }
+
+    public void setProtectedEndpoints(List<String> protectedEndpoints) {
+        this.protectedEndpoints = protectedEndpoints;
     }
 }

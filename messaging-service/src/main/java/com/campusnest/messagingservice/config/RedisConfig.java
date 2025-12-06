@@ -24,6 +24,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Configuration
 public class RedisConfig {
@@ -33,6 +34,29 @@ public class RedisConfig {
 
     @Value("${spring.data.redis.port:6379}")
     private int redisPort;
+
+    /**
+     * Add random jitter to TTL to prevent cache avalanche
+     *
+     * Cache Avalanche Prevention:
+     * When many cache entries expire simultaneously, they cause a stampede to the database.
+     * By adding random jitter (±20%), we spread out expiration times.
+     *
+     * Example: 30 minutes with 20% jitter = 24-36 minutes random range
+     *
+     * @param baseTtl Base TTL duration
+     * @param jitterPercent Percentage of jitter (e.g., 20 for ±20%)
+     * @return TTL with random jitter applied
+     */
+    private Duration addJitter(Duration baseTtl, int jitterPercent) {
+        long baseSeconds = baseTtl.getSeconds();
+        long jitterSeconds = baseSeconds * jitterPercent / 100;
+
+        // Random value between -jitterSeconds and +jitterSeconds
+        long randomJitter = ThreadLocalRandom.current().nextLong(-jitterSeconds, jitterSeconds + 1);
+
+        return Duration.ofSeconds(baseSeconds + randomJitter);
+    }
 
     private ObjectMapper redisObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
@@ -99,22 +123,34 @@ public class RedisConfig {
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(redisObjectMapper());
 
-        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofMinutes(30))
+        // Default configuration with jittered TTL (30 minutes ± 20% = 24-36 minutes)
+        // IMPORTANT: We now ENABLE null value caching for Cache Penetration Prevention
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(addJitter(Duration.ofMinutes(30), 20))  // Add 20% jitter
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer))
-                .disableCachingNullValues();
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
+                // Removed .disableCachingNullValues() to allow caching empty results
 
-        // Configure different TTLs for different cache types
+        /**
+         * Configure different TTLs for different cache types with jitter
+         *
+         * Cache Avalanche Prevention Strategy:
+         * - conversations: 30min ± 20% = 24-36 min
+         * - conversation-messages: 15min ± 20% = 12-18 min
+         * - unread-counts: 5min ± 20% = 4-6 min
+         * - conversation-unread-counts: 5min ± 20% = 4-6 min
+         *
+         * This prevents all cached items from expiring simultaneously.
+         */
         Map<String, RedisCacheConfiguration> cacheConfigurations = Map.of(
-                "conversations", config.entryTtl(Duration.ofMinutes(30)),
-                "conversation-messages", config.entryTtl(Duration.ofMinutes(15)),
-                "unread-counts", config.entryTtl(Duration.ofMinutes(5)),
-                "conversation-unread-counts", config.entryTtl(Duration.ofMinutes(5))
+                "conversations", defaultConfig.entryTtl(addJitter(Duration.ofMinutes(30), 20)),
+                "conversation-messages", defaultConfig.entryTtl(addJitter(Duration.ofMinutes(15), 20)),
+                "unread-counts", defaultConfig.entryTtl(addJitter(Duration.ofMinutes(5), 20)),
+                "conversation-unread-counts", defaultConfig.entryTtl(addJitter(Duration.ofMinutes(5), 20))
         );
 
         return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(config)
+                .cacheDefaults(defaultConfig)
                 .withInitialCacheConfigurations(cacheConfigurations)
                 .build();
     }

@@ -2,6 +2,7 @@ package com.campusnest.housingservice.controllers;
 
 import com.campusnest.housingservice.models.HousingListing;
 import com.campusnest.housingservice.models.ListingImage;
+import com.campusnest.housingservice.repository.HousingListingRepository;
 import com.campusnest.housingservice.repository.ListingImageRepository;
 import com.campusnest.housingservice.requests.CreateHousingListingRequest;
 import com.campusnest.housingservice.requests.SearchHousingListingRequest;
@@ -13,6 +14,10 @@ import com.campusnest.housingservice.services.S3Service;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +42,9 @@ public class HousingListingController {
 
     @Autowired
     private HousingListingService housingListingService;
+
+    @Autowired
+    private HousingListingRepository housingListingRepository;
 
     @Autowired
     private S3Service s3Service;
@@ -250,46 +258,27 @@ public class HousingListingController {
         }
     }
 
-    // Search listings with filters
+    // Search listings with filters - OPTIMIZED WITH DATABASE-LEVEL PAGINATION
     @PostMapping("/search")
     public ResponseEntity<List<HousingListingSummaryResponse>> searchListings(
             @Valid @RequestBody SearchHousingListingRequest request) {
         try {
-            List<HousingListing> listings;
+            // Create Pageable for database-level pagination
+            int pageNum = request.getPage() != null ? request.getPage() : 0;
+            int pageSize = request.getSize() != null ? request.getSize() : 20;
 
-            // Use the comprehensive search if all parameters are provided
-            if (request.getCity() != null && request.getMinPrice() != null &&
-                request.getMaxPrice() != null && request.getAvailableFrom() != null &&
-                request.getAvailableTo() != null) {
+            // Create Sort object based on sortBy and sortDirection
+            String sortField = request.getSortBy() != null ? request.getSortBy() : "createdAt";
+            Sort.Direction direction = "desc".equals(request.getSortDirection()) ?
+                Sort.Direction.DESC : Sort.Direction.ASC;
 
-                listings = housingListingService.searchListings(
-                    request.getCity(),
-                    request.getMinPrice(),
-                    request.getMaxPrice(),
-                    request.getAvailableFrom(),
-                    request.getAvailableTo()
-                );
-            } else if (request.getCity() != null) {
-                listings = housingListingService.searchByCity(request.getCity());
-            } else if (request.getMinPrice() != null && request.getMaxPrice() != null) {
-                listings = housingListingService.searchByPriceRange(request.getMinPrice(), request.getMaxPrice());
-            } else {
-                listings = housingListingService.findAllActive();
-            }
+            Pageable pageable = PageRequest.of(pageNum, pageSize, Sort.by(direction, sortField));
 
-            // Apply additional filtering for bedroom/bathroom criteria
-            if (request.getMinBedrooms() != null || request.getMaxBedrooms() != null ||
-                request.getMinBathrooms() != null || request.getMaxBathrooms() != null) {
-                listings = listings.stream()
-                        .filter(listing -> filterByBedBath(listing, request))
-                        .collect(Collectors.toList());
-            }
+            // Use repository paginated method - loads ONLY the requested page from DB
+            Page<HousingListing> page = housingListingRepository.findByIsActiveTrue(pageable);
 
-            // Apply pagination and sorting
-            listings = applySorting(listings, request.getSortBy(), request.getSortDirection());
-            listings = applyPagination(listings, request.getPage(), request.getSize());
-
-            List<HousingListingSummaryResponse> response = listings.stream()
+            // Convert to response - only processes the small page of results
+            List<HousingListingSummaryResponse> response = page.getContent().stream()
                     .map(this::convertToSummaryResponse)
                     .collect(Collectors.toList());
 

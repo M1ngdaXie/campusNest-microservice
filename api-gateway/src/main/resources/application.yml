@@ -44,6 +44,13 @@ spring:
           filters:
             - RewritePath=/api/images/(?<segment>.*), /api/images/$\{segment}
 
+        - id: housing-service-cache
+          uri: ${HOUSING_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/cache/**
+          filters:
+            - RewritePath=/api/cache/(?<segment>.*), /api/cache/$\{segment}
+
         # Messaging Service Routes
         - id: messaging-service-conversations
           uri: lb://messaging-service
@@ -51,6 +58,22 @@ spring:
             - Path=/api/messaging/**
           filters:
             - RewritePath=/api/messaging/(?<segment>.*), /api/messaging/$\{segment}
+
+        # WebSocket Routes (for messaging)
+        - id: messaging-service-websocket
+          uri: ${MESSAGING_SERVICE_URL:ws://localhost:8083}
+          predicates:
+            - Path=/ws-native/**
+          filters:
+            - RewritePath=/ws-native, /ws-native
+
+        # AI Assistant Service Routes
+        - id: ai-assistant-service
+          uri: http://ai-assistant-service:8084
+          predicates:
+            - Path=/api/ai/**
+          filters:
+            - RewritePath=/api/ai/(?<segment>.*), /api/ai/$\{segment}
 
       # Global CORS Configuration
       globalcors:
@@ -85,11 +108,15 @@ security:
     - /api/auth/forgot-password
     - /api/auth/reset-password
     - /actuator/health
+    - /ws-native  # WebSocket endpoint (handles its own auth)
   public-read-endpoints:
-    - /api/housing
+    - /api/housing/{id}  # Only single listing GET is public
     - /api/images
+    - /api/cache
   fully-public-endpoints:
-    - /api/housing/search
+    - /api/housing/search  # Public search endpoint
+  protected-endpoints:
+    - /api/housing/my-listings  # Requires JWT authentication
 
 # Eureka Client Configuration
 eureka:

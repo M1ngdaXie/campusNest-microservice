@@ -31,4 +31,8 @@ public class HousingListingSummaryResponse {
 
     // Owner information (denormalized for microservices)
     private String ownerEmail;
+
+    // iOS app expects these fields
+    private Integer favoriteCount = 0;
+    private Boolean isFavorited = false;
 }

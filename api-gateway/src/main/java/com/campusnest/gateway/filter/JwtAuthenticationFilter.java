@@ -54,8 +54,14 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
 
-        // Allow GET requests to public read endpoints
-        if ("GET".equals(method) && isPublicReadEndpoint(path)) {
+        // Check if this is a protected endpoint that requires JWT even for GET requests
+        // This check must come BEFORE public-read-endpoints check
+        if (isProtectedEndpoint(path)) {
+            log.debug("Protected endpoint, requiring JWT validation: {}", path);
+            // Continue to JWT validation below (don't skip)
+        }
+        // Allow GET requests to public read endpoints (only if not protected)
+        else if ("GET".equals(method) && isPublicReadEndpoint(path)) {
             log.debug("Public read endpoint (GET), skipping JWT validation: {}", path);
             return chain.filter(exchange);
         }
@@ -111,6 +117,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private boolean isFullyPublicEndpoint(String path) {
         return securityProperties.getFullyPublicEndpoints().stream().anyMatch(path::startsWith);
+    }
+
+    private boolean isProtectedEndpoint(String path) {
+        if (securityProperties.getProtectedEndpoints() == null) {
+            return false;
+        }
+        return securityProperties.getProtectedEndpoints().stream().anyMatch(path::startsWith);
     }
 
     private String extractToken(ServerHttpRequest request) {

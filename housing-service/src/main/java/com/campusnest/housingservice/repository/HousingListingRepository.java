@@ -21,6 +21,11 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
            "ORDER BY h.createdAt DESC")
     List<HousingListing> findByIsActiveTrueOrderByCreatedAtDesc();
 
+    // Find active listings with pagination
+    @Query("SELECT h FROM HousingListing h " +
+           "WHERE h.isActive = true")
+    Page<HousingListing> findByIsActiveTrue(Pageable pageable);
+
     // Find listings by owner email
     @Query("SELECT h FROM HousingListing h " +
            "WHERE h.ownerEmail = :ownerEmail AND h.isActive = true " +
@@ -83,4 +88,18 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
         @Param("minPrice") BigDecimal minPrice,
         @Param("maxPrice") BigDecimal maxPrice
     );
+
+    /**
+     * Fetch all listing IDs (for Bloom Filter initialization)
+     *
+     * Cache Penetration Prevention:
+     * This query fetches ONLY the ID column (not full objects) for efficiency.
+     * Used to populate the Bloom Filter on application startup.
+     *
+     * Why only IDs?
+     * - Fetching 100,000 full objects = ~100 MB memory + slow
+     * - Fetching 100,000 IDs = ~800 KB memory + fast ✅
+     */
+    @Query("SELECT h.id FROM HousingListing h")
+    List<Long> findAllIds();
 }

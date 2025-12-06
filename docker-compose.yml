@@ -258,6 +258,51 @@ services:
       timeout: 5s
       retries: 5
 
+  # AI Assistant Service (Python/FastAPI)
+  ai-assistant-service:
+    build:
+      context: ./ai-assistant-service
+      dockerfile: Dockerfile
+    container_name: campusnest-ai-assistant
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      # OpenAI Configuration
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      AI_MODEL: ${AI_MODEL:-gpt-4}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-500}
+
+      # Database Configuration (MySQL)
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: campusNest_ai
+      DB_USER: ${DB_USERNAME:-campusnest}
+      DB_PASSWORD: ${DB_PASSWORD:-campusnest123}
+
+      # Redis Configuration (for context caching)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8084:8084"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 networks:
   campusnest-network:
     driver: bridge
