@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/housing")
-@CrossOrigin(origins = "http://localhost:3000")
 @Slf4j
 public class HousingListingController {
 
