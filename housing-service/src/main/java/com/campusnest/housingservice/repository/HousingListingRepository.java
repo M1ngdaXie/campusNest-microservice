@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface HousingListingRepository extends JpaRepository<HousingListing, Long> {
@@ -102,4 +103,11 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
      */
     @Query("SELECT h.id FROM HousingListing h")
     List<Long> findAllIds();
+
+    /**
+     * Find listing by ID with images eagerly loaded
+     * Use LEFT JOIN FETCH to load images in a single query
+     */
+    @Query("SELECT h FROM HousingListing h LEFT JOIN FETCH h.images WHERE h.id = :id")
+    Optional<HousingListing> findByIdWithImages(@Param("id") Long id);
 }

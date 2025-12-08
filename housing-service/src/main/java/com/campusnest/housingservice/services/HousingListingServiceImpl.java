@@ -136,8 +136,8 @@ public class HousingListingServiceImpl implements HousingListingService {
             cacheMetricsService.recordCacheMiss();
         }
 
-        // STEP 3: Query database (will be cached by @Cacheable if not already cached)
-        return housingListingRepository.findById(id);
+        // STEP 3: Query database with images eagerly loaded (will be cached by @Cacheable if not already cached)
+        return housingListingRepository.findByIdWithImages(id);
     }
 
     /**
@@ -179,9 +179,9 @@ public class HousingListingServiceImpl implements HousingListingService {
                         }
                     }
 
-                    // Still not in cache - query database
+                    // Still not in cache - query database with images
                     log.info("Lock acquired, querying database for listing {}", id);
-                    Optional<HousingListing> result = housingListingRepository.findById(id);
+                    Optional<HousingListing> result = housingListingRepository.findByIdWithImages(id);
 
                     // Cache the result (even if empty, to prevent repeated queries)
                     if (cache != null && result.isPresent()) {
@@ -209,15 +209,15 @@ public class HousingListingServiceImpl implements HousingListingService {
                     }
                 }
 
-                // Last resort - query database without lock
+                // Last resort - query database without lock (with images)
                 log.warn("Fallback: querying database without lock for listing {}", id);
-                return housingListingRepository.findById(id);
+                return housingListingRepository.findByIdWithImages(id);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Interrupted while waiting for lock on listing {}", id, e);
-            // Fallback to database query
-            return housingListingRepository.findById(id);
+            // Fallback to database query with images
+            return housingListingRepository.findByIdWithImages(id);
         }
     }
 

@@ -104,6 +104,8 @@ public class HousingListingController {
 
             // Handle image associations if provided
             if (request.getS3Keys() != null && !request.getS3Keys().isEmpty()) {
+                log.info("Associating images with listing ID: " + savedListing.getId());
+                log.info("Found " + request.getS3Keys().size() + " images to associate.");
                 associateImages(savedListing, request.getS3Keys());
             }
 
@@ -356,8 +358,9 @@ public class HousingListingController {
         if (s3Keys == null || s3Keys.isEmpty()) {
             return;
         }
-
+        log.info("Associating " + s3Keys.size() + " images with listing ID: " + listing.getId());
         for (int i = 0; i < s3Keys.size(); i++) {
+            log.info("Associating image " + (i + 1) + " with S3 key: " + s3Keys.get(i));
             ListingImage image = new ListingImage();
             image.setListing(listing);
             image.setS3Key(s3Keys.get(i));
