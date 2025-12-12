@@ -30,13 +30,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Register WebSocket endpoint with SockJS fallback (for web browsers)
+        // Note: We allow all origins here but suppress CORS headers since API Gateway handles it
         registry.addEndpoint("/ws")
-                .setAllowedOrigins(allowedOrigins)
-                .withSockJS();
+                .setAllowedOriginPatterns("*")
+                .withSockJS()
+                .setSuppressCors(true);  // Suppress CORS headers from SockJS
 
         // Register native STOMP endpoint (for iOS/mobile clients)
         registry.addEndpoint("/ws-native")
-                .setAllowedOrigins(allowedOrigins);
+                .setAllowedOriginPatterns("*");
     }
 
     @Override

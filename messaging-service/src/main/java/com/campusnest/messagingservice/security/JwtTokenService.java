@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
+import java.util.Map;
 import java.util.function.Function;
 
 @Service
@@ -20,17 +21,40 @@ public class JwtTokenService {
     private String jwtSecret;
 
     private SecretKey getSigningKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
+        // Use UTF-8 bytes directly (matches API Gateway and user-service implementation)
+        byte[] keyBytes = jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public String extractEmail(String token) {
-        return extractClaim(token, Claims::getSubject);
+        Claims claims = extractAllClaims(token);
+        // Extract email from nested claims map
+        Object claimsObj = claims.get("claims");
+        if (claimsObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> customClaims = (Map<String, Object>) claimsObj;
+            return (String) customClaims.get("email");
+        }
+        return null;
     }
 
     public Long extractUserId(String token) {
         Claims claims = extractAllClaims(token);
-        return claims.get("userId", Long.class);
+        // Extract user_id from nested claims map
+        Object claimsObj = claims.get("claims");
+        if (claimsObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> customClaims = (Map<String, Object>) claimsObj;
+            Object userIdObj = customClaims.get("user_id");
+            if (userIdObj instanceof Integer) {
+                return ((Integer) userIdObj).longValue();
+            } else if (userIdObj instanceof Long) {
+                return (Long) userIdObj;
+            }
+        }
+        // Fallback: try subject which should also be user ID
+        String subject = claims.getSubject();
+        return subject != null ? Long.parseLong(subject) : null;
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {

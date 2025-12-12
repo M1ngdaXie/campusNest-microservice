@@ -19,6 +19,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
+import java.util.List;
+import java.util.Map;
 
 @Controller
 @Slf4j
@@ -239,6 +241,19 @@ public class WebSocketMessagingController {
         WebSocketAuthenticationHandler.UserPrincipal userPrincipal = getCurrentUserPrincipal(principal);
         presenceService.markUserOnline(userPrincipal.getUserId());
         log.info("User {} connected - now ONLINE", userPrincipal.getUserId());
+
+        // Broadcast online status to all conversation participants
+        List<Conversation> userConversations = messagingService.getUserConversations(userPrincipal.getUserId());
+        for (Conversation conv : userConversations) {
+            Long otherUserId = conv.getOtherParticipantId(userPrincipal.getUserId());
+            if (otherUserId != null) {
+                messagingTemplate.convertAndSendToUser(
+                    otherUserId.toString(),
+                    "/queue/presence",
+                    Map.of("userId", userPrincipal.getUserId(), "isOnline", true)
+                );
+            }
+        }
     }
 
     @MessageMapping("/chat/disconnect")
@@ -246,6 +261,19 @@ public class WebSocketMessagingController {
         WebSocketAuthenticationHandler.UserPrincipal userPrincipal = getCurrentUserPrincipal(principal);
         presenceService.markUserOffline(userPrincipal.getUserId());
         log.info("User {} disconnected - now OFFLINE", userPrincipal.getUserId());
+
+        // Broadcast offline status to all conversation participants
+        List<Conversation> userConversations = messagingService.getUserConversations(userPrincipal.getUserId());
+        for (Conversation conv : userConversations) {
+            Long otherUserId = conv.getOtherParticipantId(userPrincipal.getUserId());
+            if (otherUserId != null) {
+                messagingTemplate.convertAndSendToUser(
+                    otherUserId.toString(),
+                    "/queue/presence",
+                    Map.of("userId", userPrincipal.getUserId(), "isOnline", false)
+                );
+            }
+        }
     }
 
     private WebSocketAuthenticationHandler.UserPrincipal getCurrentUserPrincipal(Principal principal) {

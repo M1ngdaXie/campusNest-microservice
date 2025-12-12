@@ -1,19 +1,19 @@
 package com.campusnest.userservice.services;
 
 
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.exceptions.JWTVerificationException;
-import com.auth0.jwt.JWTVerifier;
-import com.auth0.jwt.algorithms.Algorithm;
 import com.campusnest.userservice.models.RefreshToken;
 import com.campusnest.userservice.models.User;
 import com.campusnest.userservice.repository.RefreshTokenRepository;
 import com.campusnest.userservice.requests.DeviceInfo;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
@@ -35,6 +35,10 @@ public class JwtTokenService {
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
 
+    private SecretKey getSigningKey() {
+        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+    }
+
     public String generateAccessToken(User user) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("user_id", user.getId());
@@ -44,13 +48,14 @@ public class JwtTokenService {
         claims.put("email_verified", user.getEmailVerified());
         claims.put("role", user.getRole().name());
 
-        return JWT.create()
-                .withSubject(user.getId().toString())
-                .withClaim("claims", claims)
-                .withIssuedAt(Date.from(Instant.now()))
-                .withExpiresAt(Date.from(Instant.now().plusSeconds(accessTokenExpiration)))
-                .withIssuer("campusnest-platform")
-                .sign(Algorithm.HMAC256(jwtSecret));
+        return Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("claims", claims)
+                .issuedAt(Date.from(Instant.now()))
+                .expiration(Date.from(Instant.now().plusSeconds(accessTokenExpiration)))
+                .issuer("campusnest-platform")
+                .signWith(getSigningKey())
+                .compact();
     }
     public String generateRefreshToken(User user, DeviceInfo deviceInfo) {
         // Delete existing refresh tokens for this user/device combo
@@ -70,32 +75,48 @@ public class JwtTokenService {
 
     public boolean validateAccessToken(String token) {
         try {
-            JWTVerifier verifier = JWT.require(Algorithm.HMAC256(jwtSecret))
-                    .withIssuer("campusnest-platform")
-                    .build();
-            verifier.verify(token);
+            Jwts.parser()
+                    .verifyWith(getSigningKey())
+                    .requireIssuer("campusnest-platform")
+                    .build()
+                    .parseSignedClaims(token);
             return true;
-        } catch (JWTVerificationException e) {
+        } catch (Exception e) {
             return false;
         }
     }
     public String getUserIdFromToken(String token) {
         validateAccessToken(token);
-        return JWT.decode(token).getSubject();
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims.getSubject();
     }
-    
+
     public String getRoleFromToken(String token) {
         validateAccessToken(token);
-        var decodedJWT = JWT.decode(token);
-        var claims = decodedJWT.getClaim("claims").asMap();
-        return (String) claims.get("role");
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> claimsMap = (Map<String, Object>) claims.get("claims");
+        return (String) claimsMap.get("role");
     }
-    
+
     public String getEmailFromToken(String token) {
         validateAccessToken(token);
-        var decodedJWT = JWT.decode(token);
-        var claims = decodedJWT.getClaim("claims").asMap();
-        return (String) claims.get("email");
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> claimsMap = (Map<String, Object>) claims.get("claims");
+        return (String) claimsMap.get("email");
     }
     
     public boolean validateToken(String token) {
@@ -123,14 +144,15 @@ public class JwtTokenService {
         // This is a simple token generation for testing - in production you'd want the full user object
         Map<String, Object> claims = new HashMap<>();
         claims.put("email", email);
-        
-        return JWT.create()
-                .withSubject(email)
-                .withClaim("claims", claims)
-                .withIssuedAt(Date.from(Instant.now()))
-                .withExpiresAt(Date.from(Instant.now().plusSeconds(accessTokenExpiration)))
-                .withIssuer("campusnest-platform")
-                .sign(Algorithm.HMAC256(jwtSecret));
+
+        return Jwts.builder()
+                .subject(email)
+                .claim("claims", claims)
+                .issuedAt(Date.from(Instant.now()))
+                .expiration(Date.from(Instant.now().plusSeconds(accessTokenExpiration)))
+                .issuer("campusnest-platform")
+                .signWith(getSigningKey())
+                .compact();
     }
 
 }

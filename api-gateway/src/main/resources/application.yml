@@ -60,12 +60,17 @@ spring:
             - RewritePath=/api/messaging/(?<segment>.*), /api/messaging/$\{segment}
 
         # WebSocket Routes (for messaging)
+        # Route for SockJS endpoint (web browsers)
         - id: messaging-service-websocket
-          uri: ${MESSAGING_SERVICE_URL:ws://localhost:8083}
+          uri: ${MESSAGING_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/ws/**
+
+        # Route for native WebSocket endpoint (mobile clients)
+        - id: messaging-service-websocket-native
+          uri: ${MESSAGING_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/ws-native/**
-          filters:
-            - RewritePath=/ws-native, /ws-native
 
         # AI Assistant Service Routes
         - id: ai-assistant-service
@@ -108,7 +113,8 @@ security:
     - /api/auth/forgot-password
     - /api/auth/reset-password
     - /actuator/health
-    - /ws-native  # WebSocket endpoint (handles its own auth)
+    - /ws  # WebSocket endpoints (handle their own auth)
+    - /ws-native  # Native WebSocket endpoint (handles its own auth)
   public-read-endpoints:
     - /api/housing/{id}  # Only single listing GET is public
     - /api/images

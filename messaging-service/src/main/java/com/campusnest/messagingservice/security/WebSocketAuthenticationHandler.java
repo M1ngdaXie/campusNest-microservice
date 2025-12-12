@@ -12,6 +12,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -130,7 +131,7 @@ public class WebSocketAuthenticationHandler implements ChannelInterceptor {
     }
 
     // Simple UserPrincipal class to hold user ID and email
-    public static class UserPrincipal {
+    public static class UserPrincipal implements Principal {
         private final Long userId;
         private final String email;
 
@@ -142,7 +143,10 @@ public class WebSocketAuthenticationHandler implements ChannelInterceptor {
         public Long getUserId() {
             return userId;
         }
-
+        @Override
+        public String getName() {
+            return userId.toString();  // CRITICAL: Spring uses this for routing
+        }
         public String getEmail() {
             return email;
         }
