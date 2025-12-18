@@ -22,6 +22,7 @@ import com.campusnest.userservice.response.RegisterResponse;
 import com.campusnest.userservice.response.ResetPasswordResponse;
 import com.campusnest.userservice.response.UserResponse;
 import com.campusnest.userservice.services.AuthService;
+import com.campusnest.userservice.services.EmailService;
 import com.campusnest.userservice.services.EmailVerificationService;
 import com.campusnest.userservice.services.JwtTokenService;
 import jakarta.transaction.Transactional;
@@ -60,6 +61,8 @@ public class AuthServiceImpl implements AuthService {
     @Autowired
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
+    @Autowired
+    private EmailService emailService;
     public RegisterResponse registerUser(RegisterRequest request) {
 
         try {
@@ -441,14 +444,10 @@ public class AuthServiceImpl implements AuthService {
     }
     
     private void sendPasswordResetEmail(User user, String resetToken) {
-        // TODO: Implement actual email sending
-        // This would typically use the same email service as registration
-        // For now, we'll log the reset link
         String resetLink = "http://localhost:8080/reset-password?token=" + resetToken;
         log.info("Password reset link for {}: {}", maskEmailForLogs(user.getEmail()), resetLink);
         
-        // In a real implementation:
-        // emailService.sendPasswordResetEmail(user.getEmail(), user.getFirstName(), resetLink);
+        emailService.sendChangePasswordEmail(user.getEmail(), user.getFirstName(), resetLink);
     }
 
     private String extractDomain(String email) {

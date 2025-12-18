@@ -26,4 +26,6 @@ public interface AuthService {
     ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request, String ipAddress, String userAgent);
     
     ResetPasswordResponse resetPassword(ResetPasswordRequest request);
+
+
 }

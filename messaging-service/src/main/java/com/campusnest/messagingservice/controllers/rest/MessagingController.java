@@ -38,6 +38,9 @@ public class MessagingController {
     @Autowired
     private HousingServiceClient housingServiceClient;
 
+    @Autowired
+    private org.springframework.cache.CacheManager cacheManager;
+
     /**
      * Create or get conversation
      */
@@ -182,6 +185,37 @@ public class MessagingController {
 
         Map<String, String> response = new HashMap<>();
         response.put("message", "Conversation deactivated");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Clear all caches (for debugging)
+     */
+    @PostMapping("/cache/clear")
+    public ResponseEntity<Map<String, String>> clearAllCaches(Authentication authentication) {
+        Long currentUserId = getCurrentUserId(authentication);
+        log.info("🗑️ Clearing all caches for user {}", currentUserId);
+
+        // Clear all messaging-related caches
+        if (cacheManager.getCache("unread-counts") != null) {
+            cacheManager.getCache("unread-counts").clear();
+            log.info("🗑️ Cleared cache: unread-counts");
+        }
+        if (cacheManager.getCache("conversation-unread-counts") != null) {
+            cacheManager.getCache("conversation-unread-counts").clear();
+            log.info("🗑️ Cleared cache: conversation-unread-counts");
+        }
+        if (cacheManager.getCache("conversations") != null) {
+            cacheManager.getCache("conversations").clear();
+            log.info("🗑️ Cleared cache: conversations");
+        }
+        if (cacheManager.getCache("conversation-messages") != null) {
+            cacheManager.getCache("conversation-messages").clear();
+            log.info("🗑️ Cleared cache: conversation-messages");
+        }
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "All caches cleared successfully");
         return ResponseEntity.ok(response);
     }
 

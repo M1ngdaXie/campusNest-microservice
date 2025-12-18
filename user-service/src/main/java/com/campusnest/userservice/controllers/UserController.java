@@ -2,10 +2,15 @@ package com.campusnest.userservice.controllers;
 
 import com.campusnest.userservice.models.User;
 import com.campusnest.userservice.repository.UserRepository;
+import com.campusnest.userservice.requests.ChangePasswordRequest;
+import com.campusnest.userservice.response.ChangePasswordResponse;
 import com.campusnest.userservice.response.PublicUserResponse;
 import com.campusnest.userservice.response.UserResponse;
+import com.campusnest.userservice.services.UserService;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +25,9 @@ public class UserController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private UserService userService;
 
     /**
      * Public endpoint to get user's public profile (no authentication required)
@@ -96,23 +104,27 @@ public class UserController {
 
     @PostMapping("/change-password")
     @PreAuthorize("hasRole('STUDENT') or hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> changePassword(
+    public ResponseEntity<ChangePasswordResponse> changePassword(
             @AuthenticationPrincipal User user,
-            @RequestBody Map<String, String> request) {
-        
+            @RequestBody @Valid ChangePasswordRequest request) {
+
         log.info("Password change request from user: {}", maskEmail(user.getEmail()));
-        
-        // This is a placeholder - in real implementation you'd:
-        // 1. Validate current password
-        // 2. Hash new password
-        // 3. Update in database
-        // 4. Invalidate all tokens
-        
-        return ResponseEntity.ok(Map.of(
-            "success", true,
-            "message", "Password change functionality will be implemented",
-            "user_role", user.getRole().name()
-        ));
+
+        ChangePasswordResponse response = userService.changePassword(user, request);
+
+        if (response.getSuccess()) {
+            log.info("Password changed successfully for user: {}", maskEmail(user.getEmail()));
+            return ResponseEntity.ok(response);
+        } else {
+            log.warn("Password change failed for user: {} - {}",
+                    maskEmail(user.getEmail()), response.getMessage());
+
+            // Return appropriate HTTP status based on error type
+            HttpStatus status = response.getMessage().contains("incorrect") ?
+                HttpStatus.UNAUTHORIZED : HttpStatus.BAD_REQUEST;
+
+            return ResponseEntity.status(status).body(response);
+        }
     }
 
     private String maskEmail(String email) {

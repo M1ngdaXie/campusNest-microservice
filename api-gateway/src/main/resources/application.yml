@@ -74,7 +74,7 @@ spring:
 
         # AI Assistant Service Routes
         - id: ai-assistant-service
-          uri: http://ai-assistant-service:8084
+          uri: ${AI_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/ai/**
           filters:

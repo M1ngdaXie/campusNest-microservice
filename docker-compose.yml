@@ -46,6 +46,7 @@ services:
       USER_SERVICE_URL: http://user-service:8081
       HOUSING_SERVICE_URL: http://housing-service:8082
       MESSAGING_SERVICE_URL: http://messaging-service:8083
+      AI_SERVICE_URL: http://ai-assistant-service:8084
 
       # Eureka Configuration
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/

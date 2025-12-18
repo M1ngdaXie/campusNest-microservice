@@ -60,7 +60,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             @Param("userId") Long userId);
 
     @Query("SELECT m FROM Message m WHERE m.conversation.id IN " +
-           "(SELECT c.id FROM Conversation c WHERE c.participant1Id = :userId OR c.participant2Id = :userId) " +
+           "(SELECT c.id FROM Conversation c WHERE (c.participant1Id = :userId OR c.participant2Id = :userId) AND c.isActive = true) " +
            "AND m.senderId != :userId AND m.id NOT IN " +
            "(SELECT ms.message.id FROM MessageStatus ms WHERE ms.userId = :userId AND ms.status = 'READ')")
     List<Message> findAllUnreadMessagesForUser(@Param("userId") Long userId);

@@ -224,18 +224,28 @@ public class MessagingServiceImpl implements MessagingService {
     })
     @Transactional(noRollbackFor = org.springframework.dao.DataIntegrityViolationException.class)
     public synchronized void markMessagesAsRead(Long conversationId, Long userId) {
-        log.info("Marking messages as read in conversation {} for user {}", conversationId, userId);
+        log.info("📖 markMessagesAsRead called: conversation={}, userId={}", conversationId, userId);
+        log.info("📖 Cache eviction: will evict 'unread-counts:{}' and 'conversation-unread-counts:{}:{}'",
+                userId, conversationId, userId);
 
         Conversation conversation = getConversation(conversationId, userId);
         List<Message> unreadMessages = messageRepository.findUnreadMessagesInConversation(conversation, userId);
 
+        log.info("📖 Found {} unread messages to mark as read", unreadMessages.size());
+
         int markedCount = 0;
         for (Message message : unreadMessages) {
             try {
-                if (!messageStatusRepository.existsByMessageAndUserIdAndStatus(message, userId, MessageStatusType.READ)) {
+                boolean alreadyRead = messageStatusRepository.existsByMessageAndUserIdAndStatus(
+                        message, userId, MessageStatusType.READ);
+
+                if (!alreadyRead) {
+                    log.debug("  📖 Marking message ID {} as READ for user {}", message.getId(), userId);
                     MessageStatus readStatus = MessageStatus.createReadStatus(message, userId);
                     messageStatusRepository.save(readStatus);
                     markedCount++;
+                } else {
+                    log.debug("  📖 Message ID {} already marked as READ for user {}", message.getId(), userId);
                 }
             } catch (org.springframework.dao.DataIntegrityViolationException e) {
                 log.debug("Message {} already marked as read for user {} (concurrent update)",
@@ -243,7 +253,8 @@ public class MessagingServiceImpl implements MessagingService {
             }
         }
 
-        log.info("Marked {} messages as read (out of {} unread)", markedCount, unreadMessages.size());
+        log.info("📖 Successfully marked {} messages as READ (out of {} unread messages)", markedCount, unreadMessages.size());
+        log.info("📖 Cache for user {} should now be evicted", userId);
     }
 
     @Override
@@ -276,7 +287,16 @@ public class MessagingServiceImpl implements MessagingService {
     @Transactional(readOnly = true)
     @Cacheable(value = "unread-counts", key = "#userId")
     public long getTotalUnreadMessageCount(Long userId) {
+        log.info("📊 Getting total unread count for user {}", userId);
         List<Message> unreadMessages = messageRepository.findAllUnreadMessagesForUser(userId);
+        log.info("📊 Found {} unread messages for user {}", unreadMessages.size(), userId);
+
+        // Log details of unread messages
+        for (Message msg : unreadMessages) {
+            log.debug("  - Message ID {}: from user {}, conversation {}, sent at {}",
+                msg.getId(), msg.getSenderId(), msg.getConversation().getId(), msg.getSentAt());
+        }
+
         return unreadMessages.size();
     }
 
