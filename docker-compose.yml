@@ -177,7 +177,8 @@ services:
       # Redis Configuration (for caching)
       REDIS_HOST: redis
       REDIS_PORT: 6379
-
+      # Google map API Key
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
       # Eureka Configuration
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
         # Spring Profile

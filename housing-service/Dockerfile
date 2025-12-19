@@ -33,5 +33,14 @@ COPY --from=build /app/target/*.jar app.jar
 # Expose port
 EXPOSE 8082
 
-# Run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Run the application with optimized JVM settings
+# -Xms: Initial heap size (256MB)
+# -Xmx: Maximum heap size (512MB - leaves room for non-heap memory)
+# -XX:+UseG1GC: Use G1 garbage collector (good for microservices)
+# -XX:MaxGCPauseMillis: Target max GC pause time
+ENTRYPOINT ["java", \
+    "-Xms256m", \
+    "-Xmx512m", \
+    "-XX:+UseG1GC", \
+    "-XX:MaxGCPauseMillis=200", \
+    "-jar", "app.jar"]

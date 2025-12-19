@@ -49,4 +49,6 @@ public interface HousingListingService {
     long getTotalActiveListings();
     
     long getTotalListingsByOwner(String ownerEmail);
+
+    HousingListing geocodeListing(Long listingId);
 }

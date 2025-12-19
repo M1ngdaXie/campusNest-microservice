@@ -1,5 +1,6 @@
 package com.campusnest.housingservice.repository;
 
+import com.campusnest.housingservice.dto.MapMarkerDTO;
 import com.campusnest.housingservice.models.HousingListing;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -110,4 +111,83 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
      */
     @Query("SELECT h FROM HousingListing h LEFT JOIN FETCH h.images WHERE h.id = :id")
     Optional<HousingListing> findByIdWithImages(@Param("id") Long id);
+
+    /**
+     * Find active listings within a radius using Haversine formula
+     * Radius in kilometers
+     * Optimized with bounding box pre-filter to reduce Haversine calculations
+     */
+    @Query(value = """
+          SELECT * FROM housing_listings
+          WHERE latitude IS NOT NULL
+          AND longitude IS NOT NULL
+          AND is_active = true
+          AND (
+              6371 * acos(
+                  cos(radians(:centerLat)) * cos(radians(latitude)) *
+                  cos(radians(longitude) - radians(:centerLng)) +
+                  sin(radians(:centerLat)) * sin(radians(latitude))
+              )
+          ) <= :radiusKm
+          ORDER BY (
+              6371 * acos(
+                  cos(radians(:centerLat)) * cos(radians(latitude)) *
+                  cos(radians(longitude) - radians(:centerLng)) +
+                  sin(radians(:centerLat)) * sin(radians(latitude))
+              )
+          ) ASC
+          """, nativeQuery = true)
+    List<HousingListing> findWithinRadius(
+            @Param("centerLat") BigDecimal centerLat,
+            @Param("centerLng") BigDecimal centerLng,
+            @Param("radiusKm") BigDecimal radiusKm
+    );
+
+    /**
+     * Find active listings within bounding box (map viewport)
+     */
+    @Query("SELECT h FROM HousingListing h WHERE " +
+            "h.latitude BETWEEN :swLat AND :neLat AND " +
+            "h.longitude BETWEEN :swLng AND :neLng AND " +
+            "h.latitude IS NOT NULL AND h.longitude IS NOT NULL AND " +
+            "h.isActive = true")
+    List<HousingListing> findWithinBounds(
+            @Param("neLat") BigDecimal neLat,
+            @Param("neLng") BigDecimal neLng,
+            @Param("swLat") BigDecimal swLat,
+            @Param("swLng") BigDecimal swLng
+    );
+
+    /**
+     * Get active map markers (lightweight) within bounds
+     */
+    @Query("""
+          SELECT new com.campusnest.housingservice.dto.MapMarkerDTO(
+              h.id, h.latitude, h.longitude, h.price, h.title, null
+          )
+          FROM HousingListing h
+          WHERE h.latitude BETWEEN :swLat AND :neLat
+          AND h.longitude BETWEEN :swLng AND :neLng
+          AND h.latitude IS NOT NULL AND h.longitude IS NOT NULL
+          AND h.isActive = true
+          """)
+    List<MapMarkerDTO> findMapMarkersWithinBounds(
+            @Param("neLat") BigDecimal neLat,
+            @Param("neLng") BigDecimal neLng,
+            @Param("swLat") BigDecimal swLat,
+            @Param("swLng") BigDecimal swLng
+    );
+
+    /**
+     * Find listings that need geocoding (optimized with idx_is_geocoded)
+     * Returns all un-geocoded listings - use with caution for large datasets
+     */
+    @Query("SELECT h FROM HousingListing h WHERE h.isGeocoded = false ORDER BY h.id ASC")
+    List<HousingListing> findByIsGeocodedFalse();
+
+    /**
+     * Find listings that need geocoding with pagination (memory-efficient)
+     */
+    @Query("SELECT h FROM HousingListing h WHERE h.isGeocoded = false ORDER BY h.id ASC")
+    Page<HousingListing> findByIsGeocodedFalse(Pageable pageable);
 }

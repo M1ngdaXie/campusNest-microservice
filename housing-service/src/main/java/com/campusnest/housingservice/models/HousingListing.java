@@ -1,5 +1,6 @@
 package com.campusnest.housingservice.models;
 
+import com.campusnest.housingservice.dto.CoordinatesDTO;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -23,7 +24,9 @@ import java.util.List;
     @Index(name = "idx_available_from", columnList = "availableFrom"),
     @Index(name = "idx_available_to", columnList = "availableTo"),
     @Index(name = "idx_city_price_active", columnList = "city, price, isActive"),
-    @Index(name = "idx_owner_id", columnList = "ownerId")
+    @Index(name = "idx_owner_id", columnList = "ownerId"),
+    @Index(name = "idx_lat_lng", columnList = "latitude, longitude"),
+    @Index(name = "idx_is_geocoded", columnList = "isGeocoded")
 })
 @Data
 @NoArgsConstructor
@@ -77,7 +80,19 @@ public class HousingListing {
     @Column(name = "owner_email", nullable = false)
     private String ownerEmail;
 
+    @Column(name = "latitude", precision = 10, scale = 8)
+    private BigDecimal latitude;
+
+    @Column(name = "longitude", precision = 11, scale = 8)
+    private BigDecimal longitude;
+
+    @Column(name = "is_geocoded")
+    private Boolean isGeocoded = false;
+
     @OneToMany(mappedBy = "listing", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnoreProperties({"listing"})
     private List<ListingImage> images = new ArrayList<>();
+
+    //add the states and zipcode later for accurate
+
 }

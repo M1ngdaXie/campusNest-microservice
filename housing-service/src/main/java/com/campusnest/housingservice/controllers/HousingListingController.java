@@ -1,5 +1,6 @@
 package com.campusnest.housingservice.controllers;
 
+import com.campusnest.housingservice.dto.MapMarkerDTO;
 import com.campusnest.housingservice.models.HousingListing;
 import com.campusnest.housingservice.models.ListingImage;
 import com.campusnest.housingservice.repository.HousingListingRepository;
@@ -9,9 +10,13 @@ import com.campusnest.housingservice.requests.SearchHousingListingRequest;
 import com.campusnest.housingservice.requests.UpdateHousingListingRequest;
 import com.campusnest.housingservice.response.HousingListingResponse;
 import com.campusnest.housingservice.response.HousingListingSummaryResponse;
+import com.campusnest.housingservice.services.GeocodingService;
 import com.campusnest.housingservice.services.HousingListingService;
 import com.campusnest.housingservice.services.S3Service;
+import com.campusnest.housingservice.validators.GeoCoordinatesValidator;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.data.domain.Page;
@@ -28,6 +33,7 @@ import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +44,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/housing")
 @Slf4j
 public class HousingListingController {
-
+    private static final Logger logger = LoggerFactory.getLogger(HousingListingController.class);
     @Autowired
     private HousingListingService housingListingService;
 
@@ -519,4 +525,234 @@ public class HousingListingController {
 
         return response;
     }
+
+    private MapMarkerDTO convertToMapMarker(HousingListing listing) {
+        MapMarkerDTO marker = new MapMarkerDTO();
+        marker.setId(listing.getId());
+        marker.setLatitude(listing.getLatitude());
+        marker.setLongitude(listing.getLongitude());
+        marker.setPrice(listing.getPrice());
+        marker.setTitle(listing.getTitle());
+
+        // Set thumbnail URL from primary image if available
+        if (listing.getImages() != null && !listing.getImages().isEmpty()) {
+            Optional<ListingImage> primaryImage = listing.getImages().stream()
+                    .filter(ListingImage::getIsPrimary)
+                    .findFirst();
+
+            if (primaryImage.isEmpty()) {
+                primaryImage = listing.getImages().stream().findFirst();
+            }
+
+            if (primaryImage.isPresent()) {
+                try {
+                    marker.setThumbnailUrl(s3Service.getSignedImageUrl(primaryImage.get().getS3Key()));
+                } catch (Exception e) {
+                    log.error("Error generating signed URL for marker thumbnail", e);
+                    marker.setThumbnailUrl(null);
+                }
+            }
+        }
+
+        return marker;
+    }
+
+    /**
+     * Search listings within a radius (returns lightweight markers for map rendering)
+     */
+    @GetMapping("/search/nearby")
+    public ResponseEntity<?> searchNearby(
+            @RequestParam BigDecimal lat,
+            @RequestParam BigDecimal lng,
+            @RequestParam(required = false) BigDecimal radiusKm,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        try {
+            // Validate inputs
+            GeoCoordinatesValidator.validateLatitude(lat);
+            GeoCoordinatesValidator.validateLongitude(lng);
+            GeoCoordinatesValidator.validateRadius(radiusKm);
+
+            // Apply size limit
+            int pageSize = Math.min(size, 500); // Max 500 results per page
+            BigDecimal radius = (radiusKm != null) ? radiusKm : new BigDecimal("10");
+
+            List<HousingListing> listings = housingListingRepository.findWithinRadius(lat, lng, radius);
+
+            // Convert to lightweight markers and apply pagination
+            List<MapMarkerDTO> markers = listings.stream()
+                    .skip((long) page * pageSize)
+                    .limit(pageSize)
+                    .map(this::convertToMapMarker)
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(markers);
+        } catch (IllegalArgumentException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    /**
+     * Search listings within map bounds (returns lightweight markers for map rendering)
+     */
+    @GetMapping("/search/bounds")
+    public ResponseEntity<?> searchWithinBounds(
+            @RequestParam BigDecimal neLat,
+            @RequestParam BigDecimal neLng,
+            @RequestParam BigDecimal swLat,
+            @RequestParam BigDecimal swLng,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        try {
+            // Validate bounding box
+            GeoCoordinatesValidator.validateBoundingBox(neLat, neLng, swLat, swLng);
+
+            // Apply size limit
+            int pageSize = Math.min(size, 500); // Max 500 results per page
+
+            List<HousingListing> listings = housingListingRepository.findWithinBounds(
+                    neLat, neLng, swLat, swLng
+            );
+
+            // Convert to lightweight markers and apply pagination
+            List<MapMarkerDTO> markers = listings.stream()
+                    .skip((long) page * pageSize)
+                    .limit(pageSize)
+                    .map(this::convertToMapMarker)
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(markers);
+        } catch (IllegalArgumentException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    /**
+     * Get lightweight map markers (faster for map rendering)
+     */
+    @GetMapping("/map-markers")
+    public ResponseEntity<?> getMapMarkers(
+            @RequestParam BigDecimal neLat,
+            @RequestParam BigDecimal neLng,
+            @RequestParam BigDecimal swLat,
+            @RequestParam BigDecimal swLng,
+            @RequestParam(defaultValue = "1000") int limit) {
+        try {
+            // Validate bounding box
+            GeoCoordinatesValidator.validateBoundingBox(neLat, neLng, swLat, swLng);
+
+            // Apply limit (max 1000 markers for performance)
+            int maxResults = Math.min(limit, 1000);
+
+            List<MapMarkerDTO> markers = housingListingRepository.findMapMarkersWithinBounds(
+                    neLat, neLng, swLat, swLng
+            );
+
+            // Limit results
+            if (markers.size() > maxResults) {
+                markers = markers.subList(0, maxResults);
+            }
+
+            return ResponseEntity.ok(markers);
+        } catch (IllegalArgumentException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    /**
+     * Admin endpoint: Geocode a specific listing
+     */
+    @PostMapping("/{id}/geocode")
+    public ResponseEntity<HousingListing> geocodeListing(@PathVariable Long id) {
+        HousingListing listing = housingListingService.geocodeListing(id);
+        return ResponseEntity.ok(listing);
+    }
+
+    /**
+     * Admin endpoint: Batch geocode all listings
+     * Memory-efficient: Processes listings in small batches using pagination
+     */
+    @PostMapping("/geocode-all")
+    public ResponseEntity<?> geocodeAllListings(
+            @RequestParam(defaultValue = "50") int batchSize) {
+        try {
+            int successCount = 0;
+            int failedCount = 0;
+            int skippedCount = 0;
+            int pageNumber = 0;
+
+            // Limit batch size to prevent abuse
+            int safeBatchSize = Math.min(batchSize, 100);
+
+            logger.info("Starting batch geocode with batch size: {}", safeBatchSize);
+
+            Page<HousingListing> page;
+            do {
+                // Fetch one page of un-geocoded listings (memory-efficient)
+                Pageable pageable = PageRequest.of(pageNumber, safeBatchSize);
+                page = housingListingRepository.findByIsGeocodedFalse(pageable);
+
+                logger.info("Processing batch {}: {} listings", pageNumber + 1, page.getNumberOfElements());
+
+                // Process each listing in current batch
+                for (HousingListing listing : page.getContent()) {
+                    try {
+                        // Check if listing has an address to geocode
+                        if (listing.getAddress() == null || listing.getAddress().trim().isEmpty()) {
+                            logger.debug("Skipping listing {} - no address", listing.getId());
+                            skippedCount++;
+                            continue;
+                        }
+
+                        housingListingService.geocodeListing(listing.getId());
+                        successCount++;
+                        logger.info("Geocoded listing {}", listing.getId());
+
+                        // Add small delay to avoid rate limiting from Google Maps API
+                        Thread.sleep(100); // 100ms between requests = max 10 requests/second
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.error("Geocoding interrupted", e);
+                        throw new RuntimeException("Geocoding interrupted", e);
+                    } catch (Exception e) {
+                        logger.error("Failed to geocode listing {}: {}", listing.getId(), e.getMessage());
+                        failedCount++;
+                    }
+                }
+
+                pageNumber++;
+
+                // Log progress
+                logger.info("Batch {} complete. Total: geocoded={}, failed={}, skipped={}",
+                    pageNumber, successCount, failedCount, skippedCount);
+
+            } while (page.hasNext());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("message", "Batch geocoding completed");
+            result.put("totalBatches", pageNumber);
+            result.put("batchSize", safeBatchSize);
+            result.put("geocoded", successCount);
+            result.put("failed", failedCount);
+            result.put("skipped", skippedCount);
+            result.put("total", successCount + failedCount + skippedCount);
+
+            logger.info("Batch geocoding finished: {} geocoded, {} failed, {} skipped",
+                successCount, failedCount, skippedCount);
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            logger.error("Error during batch geocoding", e);
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Batch geocoding failed: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+
 }

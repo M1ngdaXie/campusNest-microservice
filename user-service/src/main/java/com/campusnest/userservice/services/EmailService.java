@@ -6,4 +6,6 @@ public interface EmailService {
 
     void sendChangePasswordEmail(String email, String firstName, String resetUrl);
 
+    void sendPasswordChangeConfirmationEmail(String email, String firstName);
+
 }

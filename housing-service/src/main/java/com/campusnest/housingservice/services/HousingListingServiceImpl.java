@@ -1,6 +1,7 @@
 package com.campusnest.housingservice.services;
 
 import com.campusnest.housingservice.config.BloomFilterConfig;
+import com.campusnest.housingservice.dto.CoordinatesDTO;
 import com.campusnest.housingservice.models.HousingListing;
 import com.campusnest.housingservice.repository.HousingListingRepository;
 import com.campusnest.housingservice.repository.ListingImageRepository;
@@ -47,6 +48,9 @@ public class HousingListingServiceImpl implements HousingListingService {
     @Autowired
     private CacheMetricsService cacheMetricsService;
 
+    @Autowired
+    private GeocodingService geocodingService;
+
     // TODO: In a real microservices architecture, we would call user-service via REST/gRPC
     // to get userId from email. For now, we'll use a placeholder.
     private Long getUserIdFromEmail(String email) {
@@ -66,6 +70,10 @@ public class HousingListingServiceImpl implements HousingListingService {
         listing.setCreatedAt(LocalDateTime.now());
         listing.setUpdatedAt(LocalDateTime.now());
 
+        // Geocode BEFORE saving to avoid double database write
+        autoGeocodeListing(listing);
+
+        // Single save operation
         HousingListing savedListing = housingListingRepository.save(listing);
 
         // Add new listing ID to Bloom Filter (Cache Penetration Prevention)
@@ -248,6 +256,8 @@ public class HousingListingServiceImpl implements HousingListingService {
         existingListing.setAvailableTo(updatedListing.getAvailableTo());
         existingListing.setUpdatedAt(LocalDateTime.now());
 
+        autoGeocodeListing(existingListing);
+
         return housingListingRepository.save(existingListing);
     }
 
@@ -366,6 +376,52 @@ public class HousingListingServiceImpl implements HousingListingService {
     @Transactional(readOnly = true)
     public long getTotalListingsByOwner(String ownerEmail) {
         return housingListingRepository.countByOwnerEmail(ownerEmail);
+    }
+
+
+    private void autoGeocodeListing(HousingListing listing){
+        String fullAddress = buildFullAddress(listing);
+        if(fullAddress != null && !fullAddress.trim().isEmpty()){
+            try {
+                CoordinatesDTO coordinatesDTO = geocodingService.geocode(fullAddress);
+                if(coordinatesDTO.getSuccess()){
+                    listing.setLatitude(coordinatesDTO.getLatitude());
+                    listing.setLongitude(coordinatesDTO.getLongitude());
+                    listing.setIsGeocoded(true);
+                    String listingId = listing.getId() != null ? listing.getId().toString() : "new";
+                    log.info("Listing {} geocoded successfully", listingId);
+                }else {
+                    String listingId = listing.getId() != null ? listing.getId().toString() : "new";
+                    log.warn("Failed to geocode listing {}: {}", listingId, fullAddress);
+                    listing.setIsGeocoded(false);
+                }
+            } catch (Exception e) {
+                String listingId = listing.getId() != null ? listing.getId().toString() : "new";
+                log.error("Error geocoding listing {}: {}", listingId, e.getMessage(), e);
+                listing.setIsGeocoded(false);
+            }
+        } else {
+            log.warn("Cannot geocode listing - empty address");
+            listing.setIsGeocoded(false);
+        }
+    }
+    private String buildFullAddress(HousingListing listing) {
+        // Assuming you have fields like: address, city, state, zipCode
+        StringBuilder addressBuilder = new StringBuilder();
+
+        if (listing.getAddress() != null) addressBuilder.append(listing.getAddress());
+        if (listing.getCity() != null) addressBuilder.append(", ").append(listing.getCity());
+
+        return addressBuilder.toString().trim();
+    }
+
+    @Override
+    public HousingListing geocodeListing(Long listingId) {
+        HousingListing listing = housingListingRepository.findById(listingId)
+                .orElseThrow(() -> new RuntimeException("Listing not found"));
+
+        autoGeocodeListing(listing);
+        return housingListingRepository.save(listing);
     }
 
     @Cacheable(value = "housing-listings", key = "#id")
