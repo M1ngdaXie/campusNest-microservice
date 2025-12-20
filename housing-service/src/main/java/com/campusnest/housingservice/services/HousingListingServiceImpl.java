@@ -236,8 +236,7 @@ public class HousingListingServiceImpl implements HousingListingService {
     }
 
     @Override
-    @CachePut(value = "housing-listings", key = "#id")
-    @CacheEvict(value = "housing-search", allEntries = true)
+    @CacheEvict(value = {"housing-listings", "housing-search"}, allEntries = true)
     public HousingListing updateListing(Long id, HousingListing updatedListing, String requesterEmail) {
         verifyOwnershipOrAdmin(id, requesterEmail);
 

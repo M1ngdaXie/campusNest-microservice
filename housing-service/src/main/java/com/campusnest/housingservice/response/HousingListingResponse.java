@@ -40,6 +40,11 @@ public class HousingListingResponse {
     private Long ownerId;
     private String ownerEmail;
 
+    // Geolocation coordinates
+    private BigDecimal latitude;
+    private BigDecimal longitude;
+    private Boolean isGeocoded;
+
     private List<ImageInfo> images;
 
     @Data

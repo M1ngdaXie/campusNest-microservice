@@ -16,7 +16,7 @@ public class ListingImage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "s3key", nullable = false)
     private String s3Key;
 
     @Column(name = "image_url")

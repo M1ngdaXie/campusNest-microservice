@@ -86,6 +86,7 @@ public class HousingListingController {
                 error.put("availableTo", "Available to date must be after available from date");
                 return ResponseEntity.badRequest().body(error);
             }
+            log.info("Converting new listing with pcitures {}", request.getS3Keys().size());
 
             // Convert request to entity
             HousingListing listing = new HousingListing();
@@ -105,8 +106,10 @@ public class HousingListingController {
                 error.put("error", "Authentication required");
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
             }
+            log.info("one step before created {}", listing.getId());
 
             HousingListing savedListing = housingListingService.createListing(listing, userEmail);
+            log.info("successfully created {}", listing.getId());
 
             // Handle image associations if provided
             if (request.getS3Keys() != null && !request.getS3Keys().isEmpty()) {
@@ -197,11 +200,15 @@ public class HousingListingController {
             if (userEmail == null || userEmail.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
             }
+
             HousingListing saved = housingListingService.updateListing(id, updatedListing, userEmail);
 
             // Handle image updates if provided
             if (request.getS3Keys() != null) {
                 updateImages(saved, request.getS3Keys());
+                // Reload listing to get updated images
+                saved = housingListingService.findById(id).orElseThrow(() ->
+                    new RuntimeException("Listing not found after update"));
             }
 
             return ResponseEntity.ok(convertToResponse(saved));
@@ -281,13 +288,30 @@ public class HousingListingController {
 
             Pageable pageable = PageRequest.of(pageNum, pageSize, Sort.by(direction, sortField));
 
-            // Use repository paginated method - loads ONLY the requested page from DB
-            Page<HousingListing> page = housingListingRepository.findByIsActiveTrue(pageable);
+            // Use repository search method with all filters
+            // Note: Request already has BigDecimal for prices and LocalDate for dates
+            Page<HousingListing> page = housingListingRepository.searchWithFilters(
+                request.getCity(),
+                request.getMinPrice(),
+                request.getMaxPrice(),
+                request.getMinBedrooms(),
+                request.getMaxBedrooms(),
+                request.getMinBathrooms(),
+                request.getMaxBathrooms(),
+                request.getAvailableFrom(),
+                request.getAvailableTo(),
+                pageable
+            );
 
             // Convert to response - only processes the small page of results
             List<HousingListingSummaryResponse> response = page.getContent().stream()
                     .map(this::convertToSummaryResponse)
                     .collect(Collectors.toList());
+
+            log.info("Search completed: {} results found with filters - city: {}, priceRange: {}-{}, bedrooms: {}-{}, bathrooms: {}-{}",
+                    page.getTotalElements(), request.getCity(), request.getMinPrice(), request.getMaxPrice(),
+                    request.getMinBedrooms(), request.getMaxBedrooms(),
+                    request.getMinBathrooms(), request.getMaxBathrooms());
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -362,30 +386,48 @@ public class HousingListingController {
 
     private void associateImages(HousingListing listing, List<String> s3Keys) {
         if (s3Keys == null || s3Keys.isEmpty()) {
+            log.debug("No images to associate for listing ID: {}", listing.getId());
             return;
         }
-        log.info("Associating " + s3Keys.size() + " images with listing ID: " + listing.getId());
-        for (int i = 0; i < s3Keys.size(); i++) {
-            log.info("Associating image " + (i + 1) + " with S3 key: " + s3Keys.get(i));
-            ListingImage image = new ListingImage();
-            image.setListing(listing);
-            image.setS3Key(s3Keys.get(i));
-            image.setDisplayOrder(i + 1);
-            image.setIsPrimary(i == 0); // First image is primary by default
 
-            listingImageRepository.save(image);
+        log.info("Associating {} images with listing ID: {}", s3Keys.size(), listing.getId());
+
+        try {
+            for (int i = 0; i < s3Keys.size(); i++) {
+                String s3Key = s3Keys.get(i);
+                log.info("Associating image {} of {} with S3 key: {}", i + 1, s3Keys.size(), s3Key);
+
+                ListingImage image = new ListingImage();
+                image.setListing(listing);
+                image.setS3Key(s3Key);
+                image.setDisplayOrder(i + 1);
+                image.setIsPrimary(i == 0); // First image is primary by default
+
+                ListingImage savedImage = listingImageRepository.save(image);
+                log.debug("Successfully saved image ID: {} for listing ID: {}", savedImage.getId(), listing.getId());
+            }
+            log.info("Successfully associated all {} images with listing ID: {}", s3Keys.size(), listing.getId());
+        } catch (Exception e) {
+            log.error("Failed to associate images with listing ID: {}. Error: {}", listing.getId(), e.getMessage(), e);
+            throw new RuntimeException("Failed to save images: " + e.getMessage(), e);
         }
     }
 
     @Transactional
     private void updateImages(HousingListing listing, List<String> s3Keys) {
+        if (s3Keys == null || s3Keys.isEmpty()) {
+            log.debug("No new images provided for listing ID: {}, keeping existing images", listing.getId());
+            return;
+        }
+
+        log.info("Updating images for listing ID: {}. Replacing existing images with {} new images",
+                listing.getId(), s3Keys.size());
+
         // Delete existing images for this listing
         listingImageRepository.deleteByListing(listing);
 
-        // Associate new images if provided
-        if (s3Keys != null && !s3Keys.isEmpty()) {
-            associateImages(listing, s3Keys);
-        }
+        // Associate new images
+        associateImages(listing, s3Keys);
     }
 
     private boolean filterByBedBath(HousingListing listing, SearchHousingListingRequest request) {
@@ -464,8 +506,16 @@ public class HousingListingController {
         response.setOwnerEmail(listing.getOwnerEmail());
         response.setOwnerId(listing.getOwnerId());
 
+        // Set geolocation coordinates
+        response.setLatitude(listing.getLatitude());
+        response.setLongitude(listing.getLongitude());
+        response.setIsGeocoded(listing.getIsGeocoded());
+
         // Set images
+        log.debug("Converting listing {} to response. Images collection is null: {}",
+                listing.getId(), listing.getImages() == null);
         if (listing.getImages() != null) {
+            log.debug("Listing {} has {} images", listing.getId(), listing.getImages().size());
             List<HousingListingResponse.ImageInfo> imageInfos = listing.getImages().stream()
                     .map(image -> {
                         HousingListingResponse.ImageInfo imageInfo = new HousingListingResponse.ImageInfo();
@@ -485,6 +535,8 @@ public class HousingListingController {
                     })
                     .collect(Collectors.toList());
             response.setImages(imageInfos);
+        } else {
+            log.warn("Listing {} has null images collection", listing.getId());
         }
 
         return response;

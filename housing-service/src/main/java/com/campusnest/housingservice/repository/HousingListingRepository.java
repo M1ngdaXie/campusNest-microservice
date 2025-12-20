@@ -18,29 +18,35 @@ import java.util.Optional;
 public interface HousingListingRepository extends JpaRepository<HousingListing, Long> {
 
     // Find active listings
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.isActive = true " +
            "ORDER BY h.createdAt DESC")
     List<HousingListing> findByIsActiveTrueOrderByCreatedAtDesc();
 
     // Find active listings with pagination
-    @Query("SELECT h FROM HousingListing h " +
-           "WHERE h.isActive = true")
+    @Query(value = "SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
+           "WHERE h.isActive = true",
+           countQuery = "SELECT COUNT(DISTINCT h) FROM HousingListing h WHERE h.isActive = true")
     Page<HousingListing> findByIsActiveTrue(Pageable pageable);
 
     // Find listings by owner email
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.ownerEmail = :ownerEmail AND h.isActive = true " +
            "ORDER BY h.createdAt DESC")
     List<HousingListing> findByOwnerEmailAndIsActiveTrueOrderByCreatedAtDesc(@Param("ownerEmail") String ownerEmail);
 
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.ownerEmail = :ownerEmail " +
            "ORDER BY h.createdAt DESC")
     List<HousingListing> findByOwnerEmailOrderByCreatedAtDesc(@Param("ownerEmail") String ownerEmail);
 
     // Search with criteria
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.isActive = true " +
            "AND h.city LIKE %:city% " +
            "AND h.price BETWEEN :minPrice AND :maxPrice " +
@@ -61,12 +67,18 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
     long countByOwnerEmail(String ownerEmail);
 
     // Paginated search by city and price range
-    @Query("SELECT h FROM HousingListing h " +
+    @Query(value = "SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.isActive = true " +
            "AND (:city IS NULL OR h.city LIKE %:city%) " +
            "AND (:minPrice IS NULL OR h.price >= :minPrice) " +
            "AND (:maxPrice IS NULL OR h.price <= :maxPrice) " +
-           "ORDER BY h.createdAt DESC")
+           "ORDER BY h.createdAt DESC",
+           countQuery = "SELECT COUNT(DISTINCT h) FROM HousingListing h " +
+           "WHERE h.isActive = true " +
+           "AND (:city IS NULL OR h.city LIKE %:city%) " +
+           "AND (:minPrice IS NULL OR h.price >= :minPrice) " +
+           "AND (:maxPrice IS NULL OR h.price <= :maxPrice)")
     Page<HousingListing> findByCityAndPriceBetween(
         @Param("city") String city,
         @Param("minPrice") BigDecimal minPrice,
@@ -75,14 +87,16 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
     );
 
     // Optimized city search
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.isActive = true " +
            "AND LOWER(h.city) LIKE LOWER(CONCAT('%', :city, '%')) " +
            "ORDER BY h.createdAt DESC")
     List<HousingListing> findActiveByCityContainingIgnoreCase(@Param("city") String city);
 
     // Optimized price range search
-    @Query("SELECT h FROM HousingListing h " +
+    @Query("SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
            "WHERE h.isActive = true " +
            "AND h.price BETWEEN :minPrice AND :maxPrice " +
            "ORDER BY h.createdAt DESC")
@@ -190,4 +204,44 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
      */
     @Query("SELECT h FROM HousingListing h WHERE h.isGeocoded = false ORDER BY h.id ASC")
     Page<HousingListing> findByIsGeocodedFalse(Pageable pageable);
+
+    /**
+     * Advanced search with multiple optional filters and pagination
+     * All parameters are optional (nullable) for flexible filtering
+     */
+    @Query(value = "SELECT DISTINCT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.images " +
+           "WHERE h.isActive = true " +
+           "AND (:city IS NULL OR LOWER(h.city) LIKE LOWER(CONCAT('%', :city, '%'))) " +
+           "AND (:minPrice IS NULL OR h.price >= :minPrice) " +
+           "AND (:maxPrice IS NULL OR h.price <= :maxPrice) " +
+           "AND (:minBedrooms IS NULL OR h.bedrooms >= :minBedrooms) " +
+           "AND (:maxBedrooms IS NULL OR h.bedrooms <= :maxBedrooms) " +
+           "AND (:minBathrooms IS NULL OR h.bathrooms >= :minBathrooms) " +
+           "AND (:maxBathrooms IS NULL OR h.bathrooms <= :maxBathrooms) " +
+           "AND (:availableFrom IS NULL OR h.availableTo >= :availableFrom) " +
+           "AND (:availableTo IS NULL OR h.availableFrom <= :availableTo)",
+           countQuery = "SELECT COUNT(DISTINCT h) FROM HousingListing h " +
+           "WHERE h.isActive = true " +
+           "AND (:city IS NULL OR LOWER(h.city) LIKE LOWER(CONCAT('%', :city, '%'))) " +
+           "AND (:minPrice IS NULL OR h.price >= :minPrice) " +
+           "AND (:maxPrice IS NULL OR h.price <= :maxPrice) " +
+           "AND (:minBedrooms IS NULL OR h.bedrooms >= :minBedrooms) " +
+           "AND (:maxBedrooms IS NULL OR h.bedrooms <= :maxBedrooms) " +
+           "AND (:minBathrooms IS NULL OR h.bathrooms >= :minBathrooms) " +
+           "AND (:maxBathrooms IS NULL OR h.bathrooms <= :maxBathrooms) " +
+           "AND (:availableFrom IS NULL OR h.availableTo >= :availableFrom) " +
+           "AND (:availableTo IS NULL OR h.availableFrom <= :availableTo)")
+    Page<HousingListing> searchWithFilters(
+        @Param("city") String city,
+        @Param("minPrice") BigDecimal minPrice,
+        @Param("maxPrice") BigDecimal maxPrice,
+        @Param("minBedrooms") Integer minBedrooms,
+        @Param("maxBedrooms") Integer maxBedrooms,
+        @Param("minBathrooms") Integer minBathrooms,
+        @Param("maxBathrooms") Integer maxBathrooms,
+        @Param("availableFrom") LocalDate availableFrom,
+        @Param("availableTo") LocalDate availableTo,
+        Pageable pageable
+    );
 }
