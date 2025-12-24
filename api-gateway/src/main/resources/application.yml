@@ -61,16 +61,21 @@ spring:
 
         # WebSocket Routes (for messaging)
         # Route for SockJS endpoint (web browsers)
+        # Use ws:// scheme for WebSocket connections
         - id: messaging-service-websocket
-          uri: ${MESSAGING_SERVICE_URL:http://localhost:8083}
+          uri: lb:ws://messaging-service
           predicates:
             - Path=/ws/**
+          filters:
+            - PreserveHostHeader
 
         # Route for native WebSocket endpoint (mobile clients)
         - id: messaging-service-websocket-native
-          uri: ${MESSAGING_SERVICE_URL:http://localhost:8083}
+          uri: lb:ws://messaging-service
           predicates:
             - Path=/ws-native/**
+          filters:
+            - PreserveHostHeader
 
         # AI Assistant Service Routes
         - id: ai-assistant-service
@@ -79,6 +84,13 @@ spring:
             - Path=/api/ai/**
           filters:
             - RewritePath=/api/ai/(?<segment>.*), /api/ai/$\{segment}
+        # Notification Service Routes
+        - id: notification-service-notifications
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/notifications/**
+          filters:
+            - RewritePath=/api/notifications/(?<segment>.*), /api/notifications/$\{segment}
 
       # Global CORS Configuration
       globalcors:

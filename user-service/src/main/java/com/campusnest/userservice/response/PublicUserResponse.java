@@ -14,6 +14,9 @@ public class PublicUserResponse {
     @JsonProperty("id")
     private Long id;
 
+    @JsonProperty("email")
+    private String email;
+
     @JsonProperty("firstName")
     private String firstName;
 
@@ -27,6 +30,7 @@ public class PublicUserResponse {
     public static PublicUserResponse from(User user) {
         return PublicUserResponse.builder()
             .id(user.getId())
+            .email(user.getEmail())
             .firstName(user.getFirstName())
             .lastName(user.getLastName())
             .universityDomain(user.getUniversityDomain())

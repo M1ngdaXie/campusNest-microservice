@@ -4,12 +4,16 @@ import com.campusnest.messagingservice.dto.ChatMessageRequest;
 import com.campusnest.messagingservice.dto.ChatMessageResponse;
 import com.campusnest.messagingservice.dto.TypingIndicatorRequest;
 import com.campusnest.messagingservice.dto.TypingIndicatorResponse;
+import com.campusnest.common.events.MessageReceivedEvent;
 import com.campusnest.messagingservice.models.Conversation;
 import com.campusnest.messagingservice.models.Message;
 import com.campusnest.messagingservice.security.WebSocketAuthenticationHandler;
 import com.campusnest.messagingservice.services.MessagingService;
 import com.campusnest.messagingservice.services.UserPresenceService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.time.DateUtils;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -22,10 +26,14 @@ import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.commons.lang.time.DateUtils.truncate;
+
 @Controller
 @Slf4j
 public class WebSocketMessagingController {
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
     @Autowired
     private MessagingService messagingService;
 
@@ -38,6 +46,19 @@ public class WebSocketMessagingController {
     @Autowired
     private UserPresenceService presenceService;
 
+    @Autowired
+    private com.campusnest.messagingservice.clients.UserServiceClient userServiceClient;
+
+    /**
+     * Helper method to construct user-specific queue destination for RabbitMQ STOMP.
+     * Format: /queue/user.{userId}.{channel}
+     */
+    private String getUserQueue(Long userId, String channel) {
+        if (userId == null || channel == null) {
+            throw new IllegalArgumentException("UserId and Channel must not be null");
+        }
+        return "/queue/user." + userId + "." + channel;
+    }
     @MessageMapping("/chat/send")
     public void sendMessage(@jakarta.validation.Valid ChatMessageRequest request, Principal principal) {
         try {
@@ -78,7 +99,7 @@ public class WebSocketMessagingController {
 
             if (otherParticipantId != null) {
                 // Send to the other participant
-                String destination = "/queue/messages/" + request.getConversationId();
+                String destination = getUserQueue(otherParticipantId, "messages." + request.getConversationId());
                 log.info("Sending WebSocket message to user: {}, destination: {}", otherParticipantId, destination);
 
                 messagingTemplate.convertAndSendToUser(
@@ -88,37 +109,61 @@ public class WebSocketMessagingController {
                 );
 
                 // Also send to a general message queue
-                messagingTemplate.convertAndSendToUser(
-                        otherParticipantId.toString(),
-                        "/queue/messages",
-                        response
-                );
+                String generalQueue = getUserQueue(otherParticipantId, "messages");
+                messagingTemplate.convertAndSend(generalQueue, response);
 
                 log.info("Message sent to user {} in conversation {}",
                         otherParticipantId, request.getConversationId());
             }
 
             // Send confirmation back to sender
-            messagingTemplate.convertAndSendToUser(
-                    currentUserId.toString(),
-                    "/queue/message-sent/" + request.getConversationId(),
-                    response
-            );
+            // Send confirmation back to sender - conversation-specific
+            String senderConvQueue = getUserQueue(currentUserId, "message-sent." + request.getConversationId());
+            messagingTemplate.convertAndSend(senderConvQueue, response);
 
-            messagingTemplate.convertAndSendToUser(
-                    currentUserId.toString(),
-                    "/queue/message-sent",
-                    response
-            );
+            // Also send to general message-sent queue
+            String senderGeneralQueue = getUserQueue(currentUserId, "message-sent");
+            messagingTemplate.convertAndSend(senderGeneralQueue, response);
+
+            //Publish RabbitMQ event for notifications
+            if (otherParticipantId != null) {
+                log.info("Fetching recipient user info for notification event");
+                try {
+                    // Fetch recipient user info to get email
+                    com.campusnest.messagingservice.dto.UserDTO recipientUser =
+                        userServiceClient.getUserById(otherParticipantId);
+
+                    log.info("Publishing message.received event to RabbitMQ");
+                    MessageReceivedEvent event = MessageReceivedEvent.builder()
+                            .recipientUserId(otherParticipantId)
+                            .recipientEmail(recipientUser.getEmail())
+                            .senderUserId(currentUserId)
+                            .senderName(currentUserEmail)
+                            .conversationId(request.getConversationId())
+                            .messagePreview(StringUtils.left(request.getContent(), 100)+"...")
+                            .build();
+
+                    rabbitTemplate.convertAndSend(
+                            "campusnest.notifications",
+                            "message.received",
+                            event
+                    );
+                    log.info("Message notification event sent successfully");
+                } catch (Exception e) {
+                    log.error("Failed to send notification event: {}", e.getMessage(), e);
+                    // Don't fail the main flow if notification fails
+                }
+            }
 
         } catch (Exception e) {
             log.error("Error sending WebSocket message: {}", e.getMessage());
 
             // Send error back to sender
             if (principal != null) {
-                messagingTemplate.convertAndSendToUser(
-                        principal.getName(),
-                        "/queue/errors",
+                WebSocketAuthenticationHandler.UserPrincipal userPrincipal = getCurrentUserPrincipal(principal);
+                String errorQueue = getUserQueue(userPrincipal.getUserId(), "errors");
+                messagingTemplate.convertAndSend(
+                        errorQueue,
                         "Failed to send message: " + e.getMessage()
                 );
             }
@@ -160,11 +205,8 @@ public class WebSocketMessagingController {
                         request.getConversationId(), currentUserId, request.getIsTyping());
 
                 // Send typing indicator to the other participant
-                messagingTemplate.convertAndSendToUser(
-                        otherParticipantId.toString(),
-                        "/queue/typing/" + request.getConversationId(),
-                        response
-                );
+                String typingQueue = getUserQueue(otherParticipantId, "typing." + request.getConversationId());
+                messagingTemplate.convertAndSend(typingQueue, response);
                 log.debug("Typing indicator sent to user {} in conversation {}",
                         otherParticipantId, request.getConversationId());
             }
@@ -193,11 +235,8 @@ public class WebSocketMessagingController {
             messagingService.markMessagesAsRead(conversationId, currentUserId);
 
             // Send confirmation
-            messagingTemplate.convertAndSendToUser(
-                    currentUserId.toString(),
-                    "/queue/conversation-joined/" + conversationId,
-                    "Successfully joined conversation"
-            );
+            String joinQueue = getUserQueue(currentUserId, "conversation-joined." + conversationId);
+            messagingTemplate.convertAndSend(joinQueue, "Successfully joined conversation");
 
             log.info("User {} successfully joined conversation {}", currentUserId, conversationId);
 
@@ -216,11 +255,8 @@ public class WebSocketMessagingController {
             log.info("User {} leaving conversation {}", currentUserId, conversationId);
 
             // Send confirmation
-            messagingTemplate.convertAndSendToUser(
-                    currentUserId.toString(),
-                    "/queue/conversation-left/" + conversationId,
-                    "Left conversation"
-            );
+            String leaveQueue = getUserQueue(currentUserId, "conversation-left." + conversationId);
+            messagingTemplate.convertAndSend(leaveQueue, "Left conversation");
 
         } catch (Exception e) {
             log.error("Error leaving conversation: {}", e.getMessage());
@@ -228,12 +264,12 @@ public class WebSocketMessagingController {
     }
 
     @MessageMapping("/chat/status")
-    @SendToUser("/queue/status")
-    public String getConnectionStatus(Principal principal) {
+    public void getConnectionStatus(Principal principal) {
         WebSocketAuthenticationHandler.UserPrincipal userPrincipal = getCurrentUserPrincipal(principal);
         log.debug("Connection status requested by user: {}", userPrincipal.getUserId());
 
-        return "Connected as user " + userPrincipal.getUserId();
+        String statusQueue = getUserQueue(userPrincipal.getUserId(), "status");
+        messagingTemplate.convertAndSend(statusQueue, "Connected as user " + userPrincipal.getUserId());
     }
 
     @MessageMapping("/chat/connect")
@@ -247,10 +283,10 @@ public class WebSocketMessagingController {
         for (Conversation conv : userConversations) {
             Long otherUserId = conv.getOtherParticipantId(userPrincipal.getUserId());
             if (otherUserId != null) {
-                messagingTemplate.convertAndSendToUser(
-                    otherUserId.toString(),
-                    "/queue/presence",
-                    Map.of("userId", userPrincipal.getUserId(), "isOnline", true)
+                String presenceQueue = getUserQueue(otherUserId, "presence");
+                messagingTemplate.convertAndSend(
+                        presenceQueue,
+                        Map.of("userId", userPrincipal.getUserId(), "isOnline", true)
                 );
             }
         }
@@ -267,10 +303,10 @@ public class WebSocketMessagingController {
         for (Conversation conv : userConversations) {
             Long otherUserId = conv.getOtherParticipantId(userPrincipal.getUserId());
             if (otherUserId != null) {
-                messagingTemplate.convertAndSendToUser(
-                    otherUserId.toString(),
-                    "/queue/presence",
-                    Map.of("userId", userPrincipal.getUserId(), "isOnline", false)
+                String presenceQueue = getUserQueue(otherUserId, "presence");
+                messagingTemplate.convertAndSend(
+                        presenceQueue,
+                        Map.of("userId", userPrincipal.getUserId(), "isOnline", false)
                 );
             }
         }

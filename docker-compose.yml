@@ -38,6 +38,8 @@ services:
         condition: service_started
       messaging-service:
         condition: service_started
+      notification-service:
+        condition: service_started
     environment:
       # JWT Configuration
       JWT_SECRET: ${JWT_SECRET}
@@ -47,6 +49,7 @@ services:
       HOUSING_SERVICE_URL: http://housing-service:8082
       MESSAGING_SERVICE_URL: http://messaging-service:8083
       AI_SERVICE_URL: http://ai-assistant-service:8084
+      NOTIFICATION_SERVICE_URL: http://notification-service:8085
 
       # Eureka Configuration
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
@@ -99,8 +102,8 @@ services:
   # User Service
   user-service:
     build:
-      context: ./user-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: user-service/Dockerfile
     container_name: campusnest-micro-user-service
     restart: unless-stopped
     depends_on:
@@ -118,6 +121,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_TOKEN_EXPIRATION: ${JWT_ACCESS_TOKEN_EXPIRATION:-900000}
       JWT_REFRESH_TOKEN_EXPIRATION: ${JWT_REFRESH_TOKEN_EXPIRATION:-604800000}
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-campusnest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-campusnest123}
 
       # Email Configuration
       MAIL_USERNAME: ${MAIL_USERNAME}
@@ -197,8 +205,8 @@ services:
   # Messaging Service
   messaging-service:
     build:
-      context: ./messaging-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: messaging-service/Dockerfile
     container_name: campusnest-micro-messaging-service
     restart: unless-stopped
     depends_on:
@@ -207,6 +215,8 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     environment:
       # Database Configuration
@@ -220,6 +230,13 @@ services:
       # Redis Configuration (for presence and caching)
       REDIS_HOST: redis
       REDIS_PORT: 6379
+
+      # RabbitMQ Configuration (for STOMP relay)
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-campusnest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-campusnest123}
+      RABBITMQ_STOMP_PORT: 61613
 
       # Eureka Configuration
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
@@ -256,6 +273,36 @@ services:
           memory: 128M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ (for WebSocket STOMP relay and async event notifications)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: campusnest-micro-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-campusnest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-campusnest123}
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"   # AMQP protocol (event bus)
+      - "15672:15672" # Management UI
+      - "61613:61613" # STOMP protocol (WebSocket relay)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -305,6 +352,64 @@ services:
       retries: 3
       start_period: 40s
 
+  # Notification Service
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: campusnest-micro-notification-service
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:mysql://mysql:3306/campusNest_notifications?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-campusnest}
+      DB_PASSWORD: ${DB_PASSWORD:-campusnest123}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+
+      # RabbitMQ Configuration
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-campusnest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-campusnest123}
+
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Email Configuration
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+
+      # Frontend URL
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+
+      # Eureka Configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+
+      # Spring Profile
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8085:8085"
+    networks:
+      - campusnest-network
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
+
 networks:
   campusnest-network:
     driver: bridge
@@ -313,4 +418,6 @@ volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  rabbitmq_data:
     driver: local

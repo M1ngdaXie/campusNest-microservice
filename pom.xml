@@ -15,11 +15,13 @@
 
     <!-- Define all modules -->
     <modules>
+        <module>common-library</module>
         <module>eureka-server</module>
         <module>api-gateway</module>
         <module>user-service</module>
         <module>housing-service</module>
         <module>messaging-service</module>
+        <module>notification-service</module>
     </modules>
 
     <properties>

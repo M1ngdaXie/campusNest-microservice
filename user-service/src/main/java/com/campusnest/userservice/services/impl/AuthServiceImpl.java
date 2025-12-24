@@ -1,5 +1,6 @@
 package com.campusnest.userservice.services.impl;
 
+import com.campusnest.common.events.UserRegisteredEvent;
 import com.campusnest.userservice.enums.VerificationStatus;
 import com.campusnest.userservice.models.PasswordResetToken;
 import com.campusnest.userservice.models.RefreshToken;
@@ -27,6 +28,7 @@ import com.campusnest.userservice.services.EmailVerificationService;
 import com.campusnest.userservice.services.JwtTokenService;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,8 @@ import java.util.UUID;
 @Slf4j
 public class AuthServiceImpl implements AuthService {
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
     @Autowired
     private UserRepository userRepository;
 
@@ -87,6 +91,17 @@ public class AuthServiceImpl implements AuthService {
 
             try {
                 emailVerificationService.sendVerificationEmail(savedUser.getEmail());
+                UserRegisteredEvent event = UserRegisteredEvent.builder()
+                        .userId(user.getId())
+                        .email(user.getEmail())
+                        .firstName(user.getFirstName())
+                        .lastName(user.getLastName())
+                        .build();
+                rabbitTemplate.convertAndSend(
+                        "campusnest.notifications",
+                        "user.registered",
+                        event
+                );
                 return RegisterResponse.success(savedUser, universityName);
 
             } catch (RuntimeException e) {

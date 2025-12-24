@@ -20,10 +20,32 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${websocket.allowed.origins}")
     private String[] allowedOrigins;
 
+    @Value("${spring.rabbitmq.host}")
+    private String rabbitmqHost;
+
+    @Value("${spring.rabbitmq.port}")
+    private int rabbitmqPort;
+
+    @Value("${spring.rabbitmq.username}")
+    private String rabbitmqUsername;
+
+    @Value("${spring.rabbitmq.password}")
+    private String rabbitmqPassword;
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Enable a simple memory-based message broker
-        registry.enableSimpleBroker("/topic", "/queue");
+        // CRITICAL: Use RabbitMQ STOMP Broker Relay for horizontal scaling
+        // This enables multiple messaging-service instances to share WebSocket connections
+        registry.enableStompBrokerRelay("/topic", "/queue")
+                .setRelayHost(rabbitmqHost)
+                .setRelayPort(61613)  // STOMP port
+                .setClientLogin(rabbitmqUsername)
+                .setClientPasscode(rabbitmqPassword)
+                .setSystemLogin(rabbitmqUsername)
+                .setSystemPasscode(rabbitmqPassword)
+                .setSystemHeartbeatSendInterval(5000)
+                .setSystemHeartbeatReceiveInterval(4000);
+
         registry.setApplicationDestinationPrefixes("/app");
     }
 

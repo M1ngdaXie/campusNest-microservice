@@ -6,11 +6,13 @@ import com.campusnest.messagingservice.dto.ConversationDTO;
 import com.campusnest.messagingservice.dto.MessageDTO;
 import com.campusnest.messagingservice.dto.UserDTO;
 import com.campusnest.messagingservice.dto.HousingListingDTO;
+import com.campusnest.common.events.ListingInquiryEvent;
 import com.campusnest.messagingservice.models.Conversation;
 import com.campusnest.messagingservice.models.Message;
 import com.campusnest.messagingservice.requests.CreateConversationRequest;
 import com.campusnest.messagingservice.services.MessagingService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -29,6 +31,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class MessagingController {
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
     @Autowired
     private MessagingService messagingService;
 
@@ -54,6 +58,20 @@ public class MessagingController {
                 currentUserId, request.getOtherParticipantId(), request.getHousingListingId());
 
         ConversationDTO dto = convertToConversationDTO(conversation, currentUserId);
+        ListingInquiryEvent event = ListingInquiryEvent.builder()
+                .landlordUserId(currentUserId)
+                .inquirerUserId(request.getOtherParticipantId())
+//                .inquirerName(request.toString())//no name in entities
+                .listingId(request.getHousingListingId())
+//                .listingTitle(request.getTitle())//no title
+                .conversationId(conversation.getId())
+                .build();
+
+        rabbitTemplate.convertAndSend(
+                "campusnest.notifications.topic",
+                "listing.inquiry",
+                event
+        );
         return ResponseEntity.ok(dto);
     }
 

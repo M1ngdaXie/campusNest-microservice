@@ -5,14 +5,25 @@ FROM maven:3.9-eclipse-temurin-17 AS build
 # Set working directory
 WORKDIR /app
 
-# Copy pom.xml and download dependencies (cached layer)
-COPY pom.xml .
-RUN mvn dependency:go-offline -B
+# Copy common-library and build it first
+COPY common-library ./common-library
 
-# Copy source code
-COPY src ./src
+# Build and install common-library to local Maven repo
+WORKDIR /app/common-library
+RUN mvn clean install -DskipTests
 
-# Build the application (skip tests for faster builds)
+# Copy service pom.xml
+WORKDIR /app
+COPY user-service/pom.xml ./user-service/
+
+# Download dependencies (cached layer)
+WORKDIR /app/user-service
+RUN mvn dependency:go-offline -B || true
+
+# Copy service source code
+COPY user-service/src ./src
+
+# Build the service
 RUN mvn clean package -DskipTests
 
 # Runtime stage - JRE image with ARM64 support
@@ -30,7 +41,7 @@ USER spring:spring
 WORKDIR /app
 
 # Copy jar from build stage
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/user-service/target/*.jar app.jar
 
 # Expose port
 EXPOSE 8081

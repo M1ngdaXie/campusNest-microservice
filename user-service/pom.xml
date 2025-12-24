@@ -32,6 +32,12 @@
 	</dependencyManagement>
 
 	<dependencies>
+		<!-- Common Library (Shared Events and DTOs) -->
+		<dependency>
+			<groupId>com.campusnest</groupId>
+			<artifactId>common-library</artifactId>
+			<version>1.0.0</version>
+		</dependency>
 		<!-- Spring Boot Starters -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -114,7 +120,11 @@
 			<artifactId>h2</artifactId>
 			<scope>test</scope>
 		</dependency>
-	</dependencies>
+        <dependency>
+            <groupId>org.springframework.amqp</groupId>
+            <artifactId>spring-rabbit</artifactId>
+        </dependency>
+    </dependencies>
 
 	<build>
 		<plugins>
